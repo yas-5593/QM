@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ساده‌ساز مدار با روش QM و جدول کارنو</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    
+    .bg-custom-page { background-color: #d2d2fa; } 
+    .bg-custom-container { background-color: #ffffe7; } 
+    .text-custom-title { color: #4a0a6c; } 
+    .text-custom-label { color: #2f084df1; } 
+    .border-custom-input { border-color: #e3e893; } 
+    .focus:ring-custom-input { --tw-ring-color: #4740cb; } 
+    .bg-custom-button { background-color: #8b8be5 ; } 
+    .hover:bg-custom-button:hover { background-color: #162f65; } 
+    .text-custom-button { color: #ffffff; } 
+    .text-custom-output { color: #30126f; } 
+    .text-custom-result { color: #451f5c; } 
+    .border-custom-table { border-color: #6b21a8; } 
+    .bg-custom-table-header { background-color: #d2d2fa; } 
+    .bg-custom-table-cell { background-color: #f8f7fe; } 
+  </style>
+</head>
+<body class="bg-custom-page flex items-center justify-center min-h-screen">
+  <div class="bg-custom-container p-8 rounded-lg shadow-lg w-full max-w-2xl">
+    <h1 class="text-3xl font-bold text-center text-custom-title mb-6">ساده‌ساز مدار با روش QM و جدول کارنو</h1>
+    
+    <div class="mb-4">
+      <label for="minterms" class="block text-lg font-medium text-custom-label">شماره‌های مین‌ترم‌ها (با کاما جدا کنید):</label>
+      <input id="minterms" type="text" placeholder="مثال: 0,1,3,5" class="mt-2 w-full p-2 border border-custom-input rounded-md focus:outline-none focus:ring-2 focus:ring-custom-input" />
+    </div>
+    
+    <button onclick="simplify()" class="w-full bg-custom-button text-custom-button py-2 rounded-md hover:bg-custom-button transition duration-300">ساده‌سازی</button>
+    
+    <div id="output" class="mt-6">
+      <h2 class="text-xl font-semibold text-custom-output">نتیجه:</h2>
+      <p id="result" class="mt-2 text-custom-result"></p>
+      <h2 class="text-xl font-semibold text-custom-output mt-4">جدول کارنو:</h2>
+      <div id="kmap" class="mt-2"></div>
+    </div>
+  </div>
+
+  <script>
+    
+    // ساده سازی
+    function simplify() {
+      //دریافت ورودی
+      const mintermsInput = document.getElementById('minterms').value;
+      const minterms = mintermsInput.split(',').map(n => parseInt(n.trim())).filter(n => !isNaN(n) && n >= 0);
+
+      
+      //بررسی ورودی نامعتبر
+      if (minterms.length === 0) {
+        document.getElementById('result').innerText = 'لطفاً مین‌ترم‌های معتبر وارد کنید.';
+        document.getElementById('kmap').innerText = '';
+        return;
+      }
+
+
+      //محاسبه تعداد متغیر
+      const maxMinterm = Math.max(...minterms);
+      const numVars = Math.ceil(Math.log2(maxMinterm + 1));
+      
+      //محدودیت متغیر
+      if (numVars > 6) {
+        document.getElementById('result').innerText = 'حداکثر ۶ متغیر پشتیبانی می‌شود (مین‌ترم تا ۶۳).';
+        document.getElementById('kmap').innerText = '';
+        return;
+      }
+
+      
+      //ساده سازی و نمایشش
+      const primeImplicants = getPrimeImplicants(minterms, numVars);
+      const essentialImplicants = getEssentialImplicants(primeImplicants, minterms);
+      const result = formatExpression(essentialImplicants, numVars);
+
+      document.getElementById('result').innerText = result ? `عبارت ساده‌شده: ${result}\nتعداد متغیرها: ${numVars}` : 'هیچ نتیجه‌ای یافت نشد.';
+      drawKarnaughMap(minterms, numVars);
+    }
+
+    //تشکیل ترم های اصلی 
+    function getPrimeImplicants(minterms, numVars) {
+      
+      //گروهبندی مینترم
+      let groups = {};
+      minterms.forEach(m => {
+        //نبدیل به باینری و شمارش یک
+        const binary = m.toString(2).padStart(numVars, '0');
+        const ones = countOnes(binary);
+        if (!groups[ones]) groups[ones] = [];
+        groups[ones].push({ term: m, binary, used: false });
+      });
+
+      let primeImplicants = [];
+      let hasMatches = true;
+
+      //ترکیب مینترمهایی که یه تفاوت دارن
+      while (hasMatches) {
+        hasMatches = false;
+        const newGroups = {};
+        const keys = Object.keys(groups).map(Number).sort((a, b) => a - b);
+
+        //مقایسه گروه های مجاورهم
+        for (let i = 0; i < keys.length - 1; i++) {
+          const group1 = groups[keys[i]];
+          const group2 = groups[keys[i + 1]];
+          if (!group1 || !group2) continue;
+
+          for (let term1 of group1) {
+            for (let term2 of group2) {
+              //ترکیب ترم یک بیتی
+              if (differByOneBit(term1.binary, term2.binary)) {
+                hasMatches = true;
+                //ساخت ترم جدید و شمارش یک
+                const newTerm = combineTerms(term1.binary, term2.binary);
+                const ones = countOnes(newTerm.replace('-', '0'));
+                if (!newGroups[ones]) newGroups[ones] = [];
+                newGroups[ones].push({
+                  term: newTerm,
+                  binary: newTerm,
+                  used: false,
+                  minterms: [...term1.minterms || [term1.term], ...term2.minterms || [term2.term]]
+                });
+                term1.used = true;
+                term2.used = true;
+              }
+            }
+          }
+        }
+
+
+        //ذخیره ترم های بلاستفاده
+        for (let key in groups) {
+          for (let term of groups[key]) {
+            if (!term.used) primeImplicants.push({ binary: term.binary, minterms: term.minterms || [term.term] });
+          }
+        }
+
+        groups = newGroups;
+      }
+
+
+      //افزودن ترم های باقی مونده
+      for (let key in groups) {
+        for (let term of groups[key]) {
+          if (!term.used) primeImplicants.push({ binary: term.binary, minterms: term.minterms || [term.term] });
+        }
+      }
+
+      return primeImplicants;
+    }
+
+    // چک کردن تفاوتهای یک بیت
+    function differByOneBit(term1, term2) {
+      let differences = 0;
+      for (let i = 0; i < term1.length; i++) {
+        if (term1[i] !== term2[i]) differences++;
+        if (differences > 1) return false;
+      }
+      return differences === 1;
+    }
+
+    //ترکیب دو ترم و جایگزینی بیت متفاوت
+    function combineTerms(term1, term2) {
+      let result = '';
+      for (let i = 0; i < term1.length; i++) {
+        result += term1[i] === term2[i] ? term1[i] : '-';
+      }
+      return result;
+    }
+
+    //شمارش بین یک و جمع تعداد یک ها
+    function countOnes(str) {
+      return str.split('').reduce((sum, bit) => sum + (bit === '1' ? 1 : 0), 0);
+    }
+
+ 
+    // پیدا کردن ای پی هایی که شامل همه مینترمهایی که کاربر داده بشه و پوشش بدتشون توی عبارت نهاییمون
+    function getEssentialImplicants(primeImplicants, minterms) {
+      let covered = new Set();
+      let essentials = [];
+
+      for (let implicant of primeImplicants) {
+        const covers = implicant.minterms.filter(m => minterms.includes(m));
+        if (covers.some(c => !covered.has(c))) {
+          essentials.push(implicant.binary);
+          covers.forEach(c => covered.add(c));
+        }
+      }
+
+      return essentials;
+    }
+
+
+    //ساخت عبارت منطقی که اگه بیت یک باشه متغیرش، و اگه صفر باشه پریمش رو میذاره و عبارت منطقی ساده شده رو نمایش میده
+    function formatExpression(implicants, numVars) {
+      if (!implicants.length) return '';
+      const vars = ['A', 'B', 'C', 'D', 'E', 'F'].slice(0, numVars);
+      return implicants.map(implicant => {
+        let term = [];
+        for (let i = 0; i < implicant.length; i++) {
+          if (implicant[i] === '1') term.push(vars[i]);
+          else if (implicant[i] === '0') term.push(`${vars[i]}'`);
+        }
+        return term.join('');
+      }).join(' + ');
+    }
+
+    //رسم جدول کارنو
+    function drawKarnaughMap(minterms, numVars) {
+      const kmapDiv = document.getElementById('kmap');
+      kmapDiv.innerHTML = '';
+
+      if (numVars < 2 || numVars > 4) {
+        kmapDiv.innerText = 'جدول کارنو فقط برای ۲ تا ۴ متغیر نمایش داده می‌شود.';
+        return;
+      }
+
+
+      //تنظیم ابعاد حدول
+      const rows = numVars <= 2 ? 2 : 4;
+      const cols = numVars <= 3 ? 2 : 4;
+      const rowLabels = numVars <= 2 ? ['0', '1'] : ['00', '01', '11', '10'];
+      const colLabels = numVars <= 3 ? ['0', '1'] : ['00', '01', '11', '10'];
+
+      //تولید ساختارش
+      let table = '<table class="table-auto border-collapse border border-custom-table mx-auto mt-4">';
+      table += '<tr><th class="border border-custom-table p-2 bg-custom-table-header"></th>';
+      
+      //اضافه کردن سرستونها
+        colLabels.forEach(label => {
+        table += `<th class="border border-custom-table p-2 bg-custom-table-header">${numVars <= 3 ? 'A' : 'AB'}=${label}</th>`;
+      });
+      table += '</tr>';
+
+
+      //پر کردن جدول
+      for (let i = 0; i < rows; i++) {
+        table += `<tr><th class="border border-custom-table p-2 bg-custom-table-header">${numVars <= 2 ? 'A' : 'CD'}=${rowLabels[i]}</th>`;
+        for (let j = 0; j < cols; j++) {
+          
+          //محاسبه اندیس سلولا
+          let index = getKMapIndex(i, j, numVars);
+          table += `<td class="border border-custom-table p-2 text-center ${minterms.includes(index) ? 'bg-custom-table-cell' : ''}">${minterms.includes(index) ? '1' : '0'}</td>`;
+        }
+        table += '</tr>';
+      }
+      table += '</table>';
+
+      //نمایش حد.ل
+      kmapDiv.innerHTML = table;
+    }
+
+    //محاسبه اندیس جدول برای 2-3 متغیر
+    function getKMapIndex(row, col, numVars) {
+      if (numVars <= 2) return row * 2 + col;
+      else if (numVars === 3) return row * 2 + col;
+      else {
+        const rowGray = [0, 1, 3, 2][row];
+        const colGray = [0, 1, 3, 2][col];
+        return (rowGray << 2) + colGray;
+      }
+    }
+  </script>
+</body>
+</html>
